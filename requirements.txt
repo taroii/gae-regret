@@ -1,0 +1,7 @@
+mujoco
+ipykernel
+mediapy
+matplotlib
+numpy
+tqdm
+scipy
