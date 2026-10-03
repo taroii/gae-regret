@@ -211,3 +211,6 @@ mujoco/
 .vscode/
 MUJOCO_LOG.TXT
 cache/*
+
+papers/
+.DS_Store

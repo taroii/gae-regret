@@ -1,0 +1,14 @@
+# conda env create -f environment.yml && conda activate gaeexp
+#
+# numpy and matplotlib are all the synthetic experiments need.  dm_control and
+# mujoco are only used by experiments/dmc_cartpole.py.
+name: gaeexp
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - numpy>=1.26
+  - matplotlib>=3.8
+  - pip
+  - pip:
+      - dm_control>=1.0.20
+      - mujoco>=3.1
