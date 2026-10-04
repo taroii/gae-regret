@@ -59,6 +59,5 @@ experiments/bjko/           reward, estimator, JKO loop, configs
 experiments/run_experiments.py   run a suite over seeds
 experiments/analyze.py           exponents, bootstrap CIs, bound checks
 experiments/make_figures.py      figures
-experiments/tune.py              bandwidth-constant sweep
 experiments/dmc_cartpole.py      cartpole swingup demo
 ```

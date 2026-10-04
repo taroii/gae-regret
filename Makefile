@@ -7,17 +7,18 @@ SEEDS ?= 200
 SEEDS_D2 ?= 100
 T ?=            # optional horizon override, e.g. make main T=300000
 
-.PHONY: help smoke gate main main-d2 dmc dmc-landscape figures overnight clean-results
+.PHONY: help smoke gate main grid main-d2 dmc dmc-landscape figures overnight clean-results
 
 help:
 	@echo "targets:"
 	@echo "  smoke           end-to-end check, a few seeds           (~1 min)"
 	@echo "  gate            Experiment 3 + the correctness gate     (~15 min)"
-	@echo "  main            Experiments 1, 2, 4 for configs B and C"
-	@echo "  main-d2         config D (d=2)"
+	@echo "  main            the three d=1 settings"
+	@echo "  main-d2         the d=2 setting alone"
+	@echo "  grid            all four settings, matched horizon and seeds"
 	@echo "  dmc-landscape   cartpole return landscape for the figure"
 	@echo "  dmc             cartpole run: Algorithm 1 vs one-point"
-	@echo "  figures         analysis table + all figures"
+	@echo "  figures         analysis, LaTeX tables, and the two figures"
 	@echo "  overnight       gate + main + main-d2 + dmc + figures"
 	@echo ""
 	@echo "variables: PY (interpreter), SEEDS ($(SEEDS)), SEEDS_D2 ($(SEEDS_D2))"
@@ -32,7 +33,14 @@ gate:
 	$(PY) experiments/run_experiments.py gate --seeds 40 --skip-existing
 
 main:
-	$(PY) experiments/run_experiments.py main --configs B C --seeds $(SEEDS) --skip-existing $(if $(T),--T $(T))
+	$(PY) experiments/run_experiments.py main --configs B A C --seeds $(SEEDS) --skip-existing $(if $(T),--T $(T))
+
+# All four settings at one horizon and one seed count, so the 2x2 varies exactly
+# one factor per panel.  Grid resolution per axis still differs with d (401^1 vs
+# 121^2 points); see the note in the runbook.
+grid:
+	$(PY) experiments/run_experiments.py main --configs B A C D \
+	  --seeds $(SEEDS) --skip-existing $(if $(T),--T $(T))
 
 main-d2:
 	$(PY) experiments/run_experiments.py main --configs D --seeds $(SEEDS_D2) --skip-existing $(if $(T),--T $(T))
@@ -46,6 +54,7 @@ dmc:
 figures:
 	$(PY) experiments/analyze.py
 	$(PY) experiments/make_figures.py
+	$(PY) experiments/make_tables.py > /dev/null
 
 overnight: gate main main-d2 dmc-landscape dmc figures
 

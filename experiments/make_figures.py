@@ -3,18 +3,17 @@
 
     python experiments/make_figures.py
 
-Figure 1 is the main-text figure: (a) regret normalised by the predicted rate, so
-a flat or falling curve means the run is consistent with the bound and no
-reference line has to be fitted; (b) realised regret against the theorem's own
-right-hand side, evaluated with the measured field error and map residual.
+The numbers live in the tables (see ``make_tables.py``); these two figures carry
+only what a number cannot show.
 
-Appendix figures: the field error against its predicted decay, with the
-exploration-only fit for comparison; the design ratio that controls the bias of
-the fit; and the injected-residual study.
+Figure 1, main text: realised regret against the theorem's own right-hand side,
+evaluated with the field error and map residual measured in the same run, with one
+panel per setting.  Faceting rather than overlaying keeps each panel at two lines,
+so no legend box is needed and nothing occludes the curves.
 
-Colours are categorical slots 1-3 of the validated reference palette, assigned in
-fixed order and never cycled, with direct end-labels so identity never rests on
-colour alone.
+Panels are titled by the parameters that define them, never by an internal letter.
+Colours are categorical slots of the validated reference palette, assigned in
+fixed order and never cycled, with direct labels so identity never rests on colour.
 """
 
 from __future__ import annotations
@@ -89,179 +88,90 @@ def _endlabel(ax, x, y, text, color) -> None:
                 color=color, fontsize=7.5, va="center", ha="left", clip_on=False)
 
 
+def _title(cfg: dict) -> str:
+    """Panels are identified by their parameters; everything else is caption."""
+    return (f"$d={cfg['d']}$,  $\\beta={cfg['beta']}$,  "
+            f"$\\lambda={cfg['lam']:g}$")
+
+
 def figure1(names: list[str]) -> None:
+    """Realised regret against the bound, one panel per setting.
+
+    With four settings the panels form a 2x2 that varies one factor at a time
+    from the first: smoothness, curvature, then dimension.
+    """
     runs = _load(names)
     if not runs:
         return
     if len(runs) > len(SERIES):
         raise ValueError(f"{len(runs)} configurations but {len(SERIES)} colour slots; "
-                         "add validated slots or facet instead of cycling")
-    fig, (axa, axb, axc) = plt.subplots(1, 3, figsize=(9.6, 2.7))
-
-    for i, (cfg, z) in enumerate(runs):
-        t = z["t"][0]
-        e = float(z["predicted_regret_exponent"][0])
-        mean, lo, hi = _band(z["cum_regret"] / t**e)
-        c = SERIES[i]
-        axa.plot(t, mean, color=c, label=f"{cfg['name']}  $d={cfg['d']}$, $\\lambda={cfg['lam']:g}$")
-        axa.fill_between(t, lo, hi, color=c, alpha=0.16, linewidth=0)
-        _endlabel(axa, t[-1], mean[-1], cfg["name"], c)
-    axa.set_xscale("log")
-    axa.set_xlabel("round $n$")
-    axa.set_ylabel(r"$\mathrm{Reg}_n \, / \, n^{\,e_{\mathrm{pred}}}$")
-    axa.set_title("(a) regret against the predicted rate", loc="left", color=INK)
-    axa.legend(loc="upper left")
-
-    for i, (cfg, z) in enumerate(runs):
+                         "add validated slots or facet further")
+    n = len(runs)
+    if n == 4:
+        fig, axgrid = plt.subplots(2, 2, figsize=(5.6, 4.6))
+        axes = axgrid.ravel()
+    else:
+        fig, axgrid = plt.subplots(1, n, figsize=(2.4 * n, 2.6))
+        axes = np.atleast_1d(axgrid)
+    for ax, (cfg, z) in zip(axes, runs):
         t = z["t"][0]
         rhs = z["rhs_strong"] if cfg["lam"] > 0 else z["rhs_convex"]
-        c = SERIES[i]
-        reg, _, _ = _band(z["cum_regret"])
-        bnd, _, _ = _band(rhs)
-        axb.plot(t, reg, color=c, label=f"{cfg['name']}: regret")
-        axb.plot(t, bnd, color=c, linestyle="--", linewidth=1.2, label=f"{cfg['name']}: bound")
-    axb.set_xscale("log"); axb.set_yscale("log")
-    axb.set_xlabel("round $n$")
-    axb.set_ylabel("cumulative policy regret")
-    axb.set_title("(b) bound with measured residuals", loc="left", color=INK)
-    axb.legend(loc="upper left", ncol=1)
+        bm, blo, bhi = _band(rhs)
+        rm, rlo, rhi = _band(z["cum_regret"])
+        ax.fill_between(t, blo, bhi, color=SERIES[1], alpha=0.16, linewidth=0)
+        ax.plot(t, bm, color=SERIES[1])
+        ax.fill_between(t, rlo, rhi, color=SERIES[0], alpha=0.16, linewidth=0)
+        ax.plot(t, rm, color=SERIES[0])
+        ax.set_xscale("log"); ax.set_yscale("log")
+        ax.set_title(_title(cfg), loc="left", color=INK)
+        ax.set_xlim(right=ax.get_xlim()[1] * 2.2)
+    for ax in axes[len(runs):]:
+        ax.set_visible(False)
+    if n == 4:
+        for ax in axgrid[-1]:
+            ax.set_xlabel("round $n$")
+        for ax in axgrid[:, 0]:
+            ax.set_ylabel("cumulative policy regret")
+    else:
+        for ax in axes:
+            ax.set_xlabel("round $n$")
+        axes[0].set_ylabel("cumulative policy regret")
+    # label the two curves once; the ordering is the same in every panel
+    cfg0, z0 = runs[0]
+    t0 = z0["t"][0]
+    rhs0 = z0["rhs_strong"] if cfg0["lam"] > 0 else z0["rhs_convex"]
+    _endlabel(axes[0], t0[-1], rhs0.mean(axis=0)[-1], "bound", SERIES[1])
+    _endlabel(axes[0], t0[-1], z0["cum_regret"].mean(axis=0)[-1], "realised", SERIES[0])
+    fig.tight_layout()
+    _save(fig, "fig1_regret_vs_bound")
 
-    # (c) the local exponent on every doubling window, which is what a rate claim
-    # rests on; a single window is not a rate.
-    for i, (cfg, z) in enumerate(runs):
-        t = z["t"][0]
-        reg = z["cum_regret"].mean(axis=0)
-        idx = {int(v): k for k, v in enumerate(t)}
-        xs, es = [], []
-        for v in t:
-            v = int(v)
-            if 2 * v in idx and 4 * v in idx:
-                d1 = reg[idx[2 * v]] - reg[idx[v]]
-                d2 = reg[idx[4 * v]] - reg[idx[2 * v]]
-                if d1 > 0 and d2 > 0:
-                    xs.append(v); es.append(np.log2(d2 / d1))
-        c = SERIES[i]
-        axc.plot(xs, es, color=c, marker="o", markersize=3.5, label=cfg["name"])
-        axc.axhline(float(z["predicted_regret_exponent"][0]), color=c,
-                    linestyle="--", linewidth=1.0)
-        if xs:
-            _endlabel(axc, xs[-1], es[-1], cfg["name"], c)
-    axc.set_xscale("log")
-    axc.set_xlabel("window start $n$")
-    axc.set_ylabel("local exponent")
-    axc.set_title("(c) exponent per doubling window", loc="left", color=INK)
-    axc.legend(loc="upper right")
 
+def _save(fig, name: str) -> None:
     FIGS.mkdir(parents=True, exist_ok=True)
     for ext in ("pdf", "png"):
-        fig.savefig(FIGS / f"fig1_regret.{ext}")
+        fig.savefig(FIGS / f"{name}.{ext}")
     plt.close(fig)
-    print(f"  fig1_regret.pdf  ({', '.join(c['name'] for c, _ in runs)})")
+    print(f"wrote {FIGS / name}.pdf")
 
 
-def figure2(names: list[str]) -> None:
-    runs = _load(names)
-    if not runs:
-        return
-    fig, ax = plt.subplots(figsize=(3.5, 2.7))
-    for i, (cfg, z) in enumerate(runs):
-        t = z["t"][0]
-        c = SERIES[i]
-        mean, lo, hi = _band(np.sqrt(z["eta"] ** 2))
-        ax.plot(t, mean, color=c, label=f"{cfg['name']}: all rounds")
-        ax.fill_between(t, lo, hi, color=c, alpha=0.16, linewidth=0)
-        if np.isfinite(z["eta_explore_only"]).any():
-            m2, _, _ = _band(z["eta_explore_only"])
-            ax.plot(t, m2, color=c, linestyle=":", linewidth=1.3,
-                    label=f"{cfg['name']}: exploration only")
-        keep = t >= max(64, t.max() / 30)
-        ref = mean[keep][0] * (t[keep] / t[keep][0]) ** float(z["predicted_eta_exponent"][0])
-        ax.plot(t[keep], ref, color=INK2, linestyle="--", linewidth=1.0,
-                label="predicted slope" if i == 0 else None)
-    ax.set_xscale("log"); ax.set_yscale("log")
-    ax.set_xlabel("round $n$"); ax.set_ylabel(r"$\eta_n=\|\widehat s_n-\nabla\bar r\|_{L^2(\pi_{n+1})}$")
-    ax.set_title("field error", loc="left", color=INK)
-    ax.legend(loc="lower left")
-    FIGS.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(FIGS / f"fig2_eta.{ext}")
-    plt.close(fig)
-    print("  fig2_eta.pdf")
-
-
-def figure3(names: list[str]) -> None:
-    runs = _load(names)
-    if not runs:
-        return
-    fig, ax = plt.subplots(figsize=(3.5, 2.7))
-    for i, (cfg, z) in enumerate(runs):
-        t = z["t"][0]
-        c = SERIES[i]
-        mean, lo, hi = _band(z["ratio_max"])
-        keep = t >= 64
-        ax.plot(t[keep], mean[keep], color=c, label=cfg["name"])
-        ax.fill_between(t[keep], lo[keep], hi[keep], color=c, alpha=0.16, linewidth=0)
-        _endlabel(ax, t[-1], mean[-1], cfg["name"], c)
-    ax.set_xscale("log"); ax.set_yscale("log")
-    ax.set_xlabel("round $n$")
-    ax.set_ylabel(r"$\max_a\ \sum_s K / \lambda_{\min}(\widehat\Sigma(a))$")
-    ax.set_title("design ratio controlling the fit's bias", loc="left", color=INK)
-    ax.legend(loc="upper left")
-    FIGS.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(FIGS / f"fig3_design_ratio.{ext}")
-    plt.close(fig)
-    print("  fig3_design_ratio.pdf")
-
-
-def figure4() -> None:
-    """Injected-residual study: fitted regret exponent against the injected decay."""
-    import re
-
-    paths = sorted(RESULTS.glob("gate-*-s*.npz"))
-    if not paths:
-        return
-    ss, fitted, pred = [], [], []
-    for p in paths:
-        z = np.load(p, allow_pickle=False)
-        cfg = json.loads(str(z["config_json"]))
-        s = float(re.search(r"s([0-9.]+)$", cfg["name"]).group(1))
-        t, reg = z["t"][0], z["cum_regret"].mean(axis=0)
-        idx = {int(v): i for i, v in enumerate(t)}
-        e = np.nan
-        for v in t:
-            v = int(v)
-            if 2 * v in idx and 4 * v in idx:
-                d1 = reg[idx[2 * v]] - reg[idx[v]]
-                d2 = reg[idx[4 * v]] - reg[idx[2 * v]]
-                if d1 > 0 and d2 > 0:
-                    e = float(np.log2(d2 / d1))
-        ss.append(s); fitted.append(e)
-        pred.append(max(0.0, 1.0 - 2.0 * s) if cfg["lam"] > 0 else max(0.0, 1.0 - s))
-    order = np.argsort(ss)
-    ss, fitted, pred = np.asarray(ss)[order], np.asarray(fitted)[order], np.asarray(pred)[order]
-    fig, ax = plt.subplots(figsize=(3.5, 2.7))
-    ax.plot(ss, pred, color=INK2, linestyle="--", linewidth=1.0, marker="s", markersize=4,
-            label="predicted")
-    ax.plot(ss, fitted, color=SERIES[0], marker="o", markersize=5, label="fitted")
-    ax.set_xlabel("injected decay $s$ in $\\eta_t=c\\,t^{-s}$")
-    ax.set_ylabel("regret exponent")
-    ax.set_title("optimisation block in isolation", loc="left", color=INK)
-    ax.legend(loc="upper right")
-    FIGS.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(FIGS / f"fig4_injected.{ext}")
-    plt.close(fig)
-    print("  fig4_injected.pdf")
+# Base setting first, then the runs that change exactly one factor: smoothness,
+# curvature, dimension.  File stems are internal; panels are labelled by
+# parameters.
+PANEL_ORDER = ["B", "A", "C", "D"]
 
 
 def main() -> None:
     _style()
-    names = sorted({json.loads(str(np.load(p, allow_pickle=False)["config_json"]))["name"]
-                    for p in RESULTS.glob("*.npz")
-                    if not p.stem.startswith(("gate", "smoke", "dmc"))})
-    print("figures:")
-    figure1(names); figure2(names); figure3(names); figure4()
+    found = []
+    for p in sorted(RESULTS.glob("*.npz")):
+        if p.stem.startswith(("gate-", "smoke-", "dmc")):
+            continue
+        cfg = json.loads(str(np.load(p)["config_json"]))
+        if cfg["name"] not in found:
+            found.append(cfg["name"])
+    names = [n for n in PANEL_ORDER if n in found] + \
+            [n for n in found if n not in PANEL_ORDER]
+    figure1(names)
 
 
 if __name__ == "__main__":

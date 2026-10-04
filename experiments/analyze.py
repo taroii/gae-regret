@@ -156,6 +156,7 @@ def analyze(paths: list[Path]) -> dict:
         eta_pred=eta_pred, eta_hat=eta_hat, eta_ci=(eta_lo, eta_hi),
         bound_holds=ok, bound_tightness=tightness,
         eps_map_max=float(np.nanmax(z["eps_map"])),
+        eps_map_final=float(np.nanmean(z["eps_map"][:, -1])),
         solver_max=float(np.nanmax(z["solver_resid"])),
         ratio_early=float(np.nanmean(z["ratio_max"][:, int(np.argmax(t >= 64))])),
         ratio_last=float(np.nanmean(z["ratio_max"][:, -1])),
