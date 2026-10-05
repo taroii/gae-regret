@@ -37,9 +37,46 @@ from bjko.run import run_one  # noqa: E402
 RESULTS = Path(__file__).resolve().parent.parent / "results"
 
 
-def _work(args: tuple[Config, int]) -> dict[str, np.ndarray]:
+def _work(args: tuple[Config, int]) -> tuple[int, dict[str, np.ndarray]]:
     cfg, seed = args
-    return run_one(cfg, seed)
+    return seed, run_one(cfg, seed)
+
+
+def _save(path: Path, cfg: Config, done: dict[int, dict[str, np.ndarray]]) -> None:
+    """Write every seed finished so far, keyed by seed so a run can resume."""
+    seeds = sorted(done)
+    runs = [done[s] for s in seeds]
+    keys = [k for k in runs[0] if k not in ("delta0", "phi0")]
+    data = {k: np.stack([r[k] for r in runs]) for k in keys}
+    data["delta0"] = np.concatenate([r["delta0"] for r in runs])
+    data["phi0"] = np.concatenate([r["phi0"] for r in runs])
+    data["config_json"] = np.array(json.dumps(cfg.as_dict()))
+    data["predicted_regret_exponent"] = np.array([cfg.regret_exponent])
+    data["predicted_eta_exponent"] = np.array([cfg.eta_exponent])
+    data["seeds"] = np.asarray(seeds)
+    RESULTS.mkdir(exist_ok=True)
+    tmp = path.with_suffix(".tmp.npz")
+    np.savez_compressed(tmp, **data)
+    tmp.replace(path)
+
+
+def _load_done(path: Path) -> dict[int, dict[str, np.ndarray]]:
+    """Recover finished seeds from an earlier, possibly interrupted, run."""
+    if not path.exists():
+        return {}
+    try:
+        z = np.load(path, allow_pickle=False)
+    except Exception:
+        return {}
+    if "seeds" not in z:
+        return {}
+    skip = {"config_json", "predicted_regret_exponent", "predicted_eta_exponent", "seeds"}
+    keys = [k for k in z.files if k not in skip]
+    out: dict[int, dict[str, np.ndarray]] = {}
+    for i, seed in enumerate(z["seeds"]):
+        out[int(seed)] = {k: (z[k][i:i + 1] if k in ("delta0", "phi0") else z[k][i])
+                          for k in keys}
+    return out
 
 
 def run_config(cfg: Config, seed_range: range, procs: int, tag: str = "",
@@ -51,26 +88,27 @@ def run_config(cfg: Config, seed_range: range, procs: int, tag: str = "",
     and ``make_figures.py`` read every shard of a configuration together.
     """
     path = RESULTS / f"{cfg.name}{tag}.npz"
-    if skip_existing and path.exists():
-        print(f"  {cfg.name}{tag}: exists, skipped")
+    wanted = list(seed_range)
+    done = _load_done(path) if skip_existing else {}
+    todo = [s for s in wanted if s not in done]
+    if not todo:
+        print(f"  {cfg.name}{tag}: {len(wanted)} seeds already present, skipped")
         return path
+    if done:
+        print(f"  {cfg.name}{tag}: resuming, {len(done)} seeds already present")
     t0 = time.time()
     with Pool(processes=procs) as pool:
-        runs = pool.map(_work, [(cfg, s) for s in seed_range], chunksize=1)
-    seeds = len(seed_range)
-    keys = [k for k in runs[0] if k not in ("delta0", "phi0")]
-    data = {k: np.stack([r[k] for r in runs]) for k in keys}
-    data["delta0"] = np.concatenate([r["delta0"] for r in runs])
-    data["phi0"] = np.concatenate([r["phi0"] for r in runs])
-    data["config_json"] = np.array(json.dumps(cfg.as_dict()))
-    data["predicted_regret_exponent"] = np.array([cfg.regret_exponent])
-    data["predicted_eta_exponent"] = np.array([cfg.eta_exponent])
-    data["seeds"] = np.asarray(list(seed_range))
-    RESULTS.mkdir(exist_ok=True)
-    np.savez_compressed(path, **data)
+        for n, (seed, run) in enumerate(
+                pool.imap_unordered(_work, [(cfg, s) for s in todo], chunksize=1), 1):
+            done[seed] = run
+            _save(path, cfg, done)
+            el = time.time() - t0
+            rate = el / n
+            print(f"  {cfg.name}{tag}: {n}/{len(todo)} seeds, {el:.0f}s elapsed, "
+                  f"{rate * (len(todo) - n):.0f}s remaining", flush=True)
     el = time.time() - t0
-    print(f"  {cfg.name}: {seeds} seeds, T={cfg.T}, {el:.1f}s "
-          f"({el / seeds:.2f}s/seed) -> {path.relative_to(RESULTS.parent)}")
+    print(f"  {cfg.name}: {len(done)} seeds, T={cfg.T}, {el:.1f}s "
+          f"({el / len(todo):.2f}s/seed) -> {path.relative_to(RESULTS.parent)}")
     return path
 
 
